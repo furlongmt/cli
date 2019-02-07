@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -24,6 +25,8 @@ type CommonAPIClient interface {
 	ContainerAPIClient
 	DistributionAPIClient
 	ImageAPIClient
+	// MATT ADDED THIS
+	MigrateAPIClient
 	NodeAPIClient
 	NetworkAPIClient
 	PluginAPIClient
@@ -196,4 +199,11 @@ type ConfigAPIClient interface {
 	ConfigRemove(ctx context.Context, id string) error
 	ConfigInspectWithRaw(ctx context.Context, name string) (swarm.Config, []byte, error)
 	ConfigUpdate(ctx context.Context, id string, version swarm.Version, config swarm.ConfigSpec) error
+}
+
+// MATT ADDED THIS
+type MigrateAPIClient interface {
+	CreatePageServer(ctx context.Context, containerID string) (container.CreatePageServerBody, error)
+	StartIter(ctx context.Context, containerID string) error
+	StopIter(ctx context.Context, containerID string) error
 }
