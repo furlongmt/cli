@@ -78,8 +78,31 @@ func RandomString(len int) string {
 	return string(bytes)
 }
 
+func SendCheckpointInfo (val int) error {
+	// this can always be the host ip for now
+	conn, err := net.Dial("tcp", "127.0.0.1:7000")
+	if err != nil {
+		logrus.Error("Could not dial client proxy")
+		return err
+	}
+	defer conn.Close()
+
+	// Then send 1 to the client to signify a checkpoint
+	fmt.Fprintf(conn, "%d", val)
+
+	return nil
+}
+
 func (l *ctrLocal) DumpCopyRestore(cr *criu.Criu, cfg phaul.Config, last_cln_images_dir string) error {
 	logrus.Debugf("DumpCopyRestore() called")
+
+	// The first thing we should do is send a message to the client that
+	// says we're actually checkpointing (stopping the application) here
+	err := SendCheckpointInfo(0)
+	if err != nil {
+		logrus.Error("Failed to send checkpoint info!")
+		return err
+	}
 
 	checkpointId := RandomString(10)
 	checkpointDir := "/tmp/docker_ckpts"
@@ -98,7 +121,7 @@ func (l *ctrLocal) DumpCopyRestore(cr *criu.Criu, cfg phaul.Config, last_cln_ima
 		OpenTcp: true,
 	}
 
-	err := l.localClient.CheckpointCreate(context.Background(), l.containerID, checkpointOpts)
+	err = l.localClient.CheckpointCreate(context.Background(), l.containerID, checkpointOpts)
 	if err != nil {
 		logrus.Error("Failed to checkpoint the container!")
 		return err
@@ -145,6 +168,13 @@ func (l *ctrLocal) DumpCopyRestore(cr *criu.Criu, cfg phaul.Config, last_cln_ima
 		return err
 	}
 
+	// the container is now started so we can send that info the client
+	err = SendCheckpointInfo(1)
+	if err != nil {
+		logrus.Error("Failed to send checkpoint info!")
+		return err
+	}
+
 	logrus.Debugf("Finished DumpCopyRestore")
 
 	return nil
@@ -184,28 +214,20 @@ func makePhaulConfig(ctx context.Context, src client.APIClient, destAddr string,
 	if err != nil {
 		return cfg, err
 	}
-	dest, err := client.NewClientWithOpts(client.WithHost(destAddr))
+	// TODO: clean this up
+	dest, err := client.NewClientWithOpts(client.WithHost(destAddr), client.WithTLSClientConfig("/home/matthew/.docker/ca.pem", "/home/matthew/.docker/cert.pem", "/home/matthew/.docker/key.pem"))
 	if err != nil {
 		logrus.Debugf("Couldn't create new client!")
 		return cfg, err
 	}
 	defer dest.Close()
-	// TODO: add support for page server
+
 	pageServer, err := dest.CreatePageServer(ctx, id)
 	if err != nil {
 		logrus.Debugf("Failed to create page server!")
 		return cfg, err
 	}
-	/*dest, err := containerd.New(destAddr)
-	if err != nil {
-		return cfg, err
-	}
-	defer dest.Close()
-	pageServer, err := dest.TaskService().CreatePageServer(ctx, &taskApi.CreatePageServerRequest{ContainerID: id})
-	if err != nil {
-		fmt.Printf("Failed to create page server\n")
-		return cfg, err
-	}*/
+
 	return phaul.Config{
 		Pid:  int(pid),
 		Addr: destIP,
@@ -216,19 +238,12 @@ func makePhaulConfig(ctx context.Context, src client.APIClient, destAddr string,
 
 func makePhaulClient(ctx context.Context, src command.Cli, destAddr string, id string, wdir string) (*phaul.Client, error) {
 
-	dest, err := client.NewClientWithOpts(client.WithHost(destAddr))
+	// TODO: clean this up
+	dest, err := client.NewClientWithOpts(client.WithHost(destAddr), client.WithTLSClientConfig("/home/matthew/.docker/ca.pem", "/home/matthew/.docker/cert.pem", "/home/matthew/.docker/key.pem"))
 	if err != nil {
 		logrus.Debugf("Couldn't create new client!")
 		return nil, err
 	}
-
-	/*dest := command.NewDockerCli(stdin, stdout, stderr, true, containerizedengine.NewClient)
-
-
-	if err := dest.Initialize(opts); err != nil {
-		logrus.Debugf("Failed to initialize a new client!")
-		return nil, err
-	}*/
 
 	logrus.Debugf("We initialized a new docker client for phaul")
 
